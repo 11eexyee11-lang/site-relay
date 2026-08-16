@@ -19,8 +19,7 @@ jobs:
 
       - name: Join ZeroTier
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq zerotier-one
+          curl -s https://install.zerotier.com | sudo bash
           sudo zerotier-cli join 48d6023c46a7d1ce
           NODEID=$(sudo zerotier-cli info | awk '{print $3}')
           echo "nodeid: $NODEID"
