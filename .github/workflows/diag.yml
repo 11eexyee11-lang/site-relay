@@ -30,5 +30,6 @@ jobs:
         run: |
           sudo zerotier-cli peers || true
           echo "--- measure ---"
-          curl -sS -m 30 -o /dev/null -w 'zt-speed:%{speed_download}:%{size_download}:%{time_total}\n' http://172.27.112.32:8080/download/677.jpg || true
-          curl -sS -m 60 -o /dev/null -w 'zt-speed2:%{speed_download}:%{size_download}:%{time_total}\n' http://172.27.112.32:8080/download/opencode-debug-20260808T223531.zip || true
+          curl -sS -m 240 -o /dev/null -w 'zt-speed:%{speed_download}:%{size_download}:%{time_total}\n' http://172.27.112.32:8080/download/677.jpg || true
+          echo "--- peers after ---"
+          sudo zerotier-cli peers || true
