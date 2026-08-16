@@ -73,5 +73,11 @@ jobs:
           git commit -m "relay: $URL"
           git push "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
 
+      - name: Diagnose
+        run: |
+          sudo zerotier-cli peers > /tmp/peers.txt 2>&1 || true
+          cat /tmp/peers.txt
+          curl -sS -m 25 -o /dev/null -w "zt-speed: %{speed_download} size=%{size_download}`n" http://172.27.112.32:8080/download/677.jpg || true
+
       - name: Keep alive
         run: sleep 340m
