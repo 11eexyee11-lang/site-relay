@@ -13,7 +13,6 @@ jobs:
           curl -s https://install.zerotier.com | sudo bash
           sudo zerotier-cli join 48d6023c46a7d1ce
           NODEID=$(sudo zerotier-cli info | awk '{print $3}')
-          echo "nodeid: $NODEID"
           curl -sS -X POST "https://my.zerotier.com/api/network/48d6023c46a7d1ce/member/$NODEID" \
             -H "Authorization: Bearer ${{ secrets.ZT_API_TOKEN }}" \
             -H "Content-Type: application/json" \
@@ -26,10 +25,29 @@ jobs:
           echo "zt ip: $IP"
           test -n "$IP"
 
-      - name: Measure
+      - name: Listen
         run: |
-          sudo zerotier-cli peers || true
-          echo "--- measure ---"
-          curl -sS -m 240 -o /dev/null -w 'zt-speed:%{speed_download}:%{size_download}:%{time_total}\n' http://172.27.112.32:8080/download/677.jpg || true
-          echo "--- peers after ---"
-          sudo zerotier-cli peers || true
+          PUBIP=$(curl -sS -m 15 https://api.ipify.org)
+          echo "PUBIP: $PUBIP"
+          python3 - <<'EOF' &
+import socket, time
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('0.0.0.0', 8081))
+s.listen(1)
+s.settimeout(150)
+try:
+    c, a = s.accept()
+    print(f"ACCEPT from {a}", flush=True)
+    total = 0
+    t0 = time.time()
+    while True:
+        d = c.recv(65536)
+        if not d: break
+        total += len(d)
+        if total % 1048576 < 65536: print(f"got {total} at {time.time()-t0:.1f}s", flush=True)
+    print(f"TOTAL {total} bytes in {time.time()-t0:.1f}s = {total/(time.time()-t0)/1024:.0f} KB/s", flush=True)
+except Exception as e:
+    print(f"LISTEN ERR: {e}", flush=True)
+EOF
+          wait
