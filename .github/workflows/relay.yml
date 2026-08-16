@@ -71,7 +71,7 @@ jobs:
           git config user.name "relay"
           git add index.html
           git commit -m "relay: $URL"
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+          git push "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
 
       - name: Keep alive
         run: sleep 340m
