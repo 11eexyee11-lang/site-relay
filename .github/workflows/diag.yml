@@ -29,25 +29,6 @@ jobs:
         run: |
           PUBIP=$(curl -sS -m 15 https://api.ipify.org)
           echo "PUBIP: $PUBIP"
-          python3 - <<'EOF' &
-import socket, time
-s = socket.socket()
-s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(('0.0.0.0', 8081))
-s.listen(1)
-s.settimeout(150)
-try:
-    c, a = s.accept()
-    print(f"ACCEPT from {a}", flush=True)
-    total = 0
-    t0 = time.time()
-    while True:
-        d = c.recv(65536)
-        if not d: break
-        total += len(d)
-        if total % 1048576 < 65536: print(f"got {total} at {time.time()-t0:.1f}s", flush=True)
-    print(f"TOTAL {total} bytes in {time.time()-t0:.1f}s = {total/(time.time()-t0)/1024:.0f} KB/s", flush=True)
-except Exception as e:
-    print(f"LISTEN ERR: {e}", flush=True)
-EOF
+          echo "aW1wb3J0IHNvY2tldCwgdGltZQpzID0gc29ja2V0LnNvY2tldCgpCnMuc2V0c29ja29wdChzb2NrZXQuU09MX1NPQ0tFVCwgc29ja2V0LlNPX1JFVVNFQUREUiwgMSkKcy5iaW5kKCgnMC4wLjAuMCcsIDgwODEpKQpzLmxpc3RlbigxKQpzLnNldHRpbWVvdXQoMTUwKQp0cnk6CiAgICBjLCBhID0gcy5hY2NlcHQoKQogICAgcHJpbnQoZiJBQ0NFUFQgZnJvbSB7YX0iLCBmbHVzaD1UcnVlKQogICAgdG90YWwgPSAwCiAgICB0MCA9IHRpbWUudGltZSgpCiAgICB3aGlsZSBUcnVlOgogICAgICAgIGQgPSBjLnJlY3YoNjU1MzYpCiAgICAgICAgaWYgbm90IGQ6CiAgICAgICAgICAgIGJyZWFrCiAgICAgICAgdG90YWwgKz0gbGVuKGQpCiAgICAgICAgaWYgdG90YWwgJSAxMDQ4NTc2IDwgNjU1MzY6CiAgICAgICAgICAgIHByaW50KGYiZ290IHt0b3RhbH0gYXQge3RpbWUudGltZSgpLXQwOi4xZn1zIiwgZmx1c2g9VHJ1ZSkKICAgIGR0ID0gdGltZS50aW1lKCkgLSB0MAogICAgcHJpbnQoZiJUT1RBTCB7dG90YWx9IGJ5dGVzIGluIHtkdDouMWZ9cyA9IHt0b3RhbC9kdC8xMDI0Oi4wZn0gS0IvcyIsIGZsdXNoPVRydWUpCmV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgIHByaW50KGYiTElTVEVOIEVSUjoge2V9IiwgZmx1c2g9VHJ1ZSk=" | base64 -d > listen.py
+          python3 listen.py &
           wait
