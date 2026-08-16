@@ -1,0 +1,34 @@
+name: phone-diag
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Join ZeroTier
+        run: |
+          curl -s https://install.zerotier.com | sudo bash
+          sudo zerotier-cli join 48d6023c46a7d1ce
+          NODEID=$(sudo zerotier-cli info | awk '{print $3}')
+          echo "nodeid: $NODEID"
+          curl -sS -X POST "https://my.zerotier.com/api/network/48d6023c46a7d1ce/member/$NODEID" \
+            -H "Authorization: Bearer ${{ secrets.ZT_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"config":{"authorized":true}}' || true
+          for i in $(seq 1 60); do
+            IP=$(ip -4 addr show | grep -oE '172\.27\.[0-9]+\.[0-9]+' | head -1)
+            [ -n "$IP" ] && break
+            sleep 3
+          done
+          echo "zt ip: $IP"
+          test -n "$IP"
+
+      - name: Measure
+        run: |
+          sudo zerotier-cli peers || true
+          echo "--- measure ---"
+          curl -sS -m 30 -o /dev/null -w 'zt-speed:%{speed_download}:%{size_download}:%{time_total}\n' http://172.27.112.32:8080/download/677.jpg || true
+          curl -sS -m 60 -o /dev/null -w 'zt-speed2:%{speed_download}:%{size_download}:%{time_total}\n' http://172.27.112.32:8080/download/opencode-debug-20260808T223531.zip || true
