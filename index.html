@@ -72,10 +72,10 @@ input:focus,textarea:focus{border-color:var(--acc)}
 <script>
 var CFG_KEY = "store_cfg_v1";
 var cfg = null;
-var treeMap = {};   // path -> {sha,size}
-var items = [];     // [{name,type,title,desc,likes,views,size,ts,date}]
+var items = [];     // [{name,type,title,desc,likes,views,size,ts,date,dir}]
 var imgCache = {};  // name -> dataURL
-var treeJson = "";
+var itemsJson = "";
+var indexSha = null;
 
 function loadCfg(){
   try { cfg = JSON.parse(localStorage.getItem(CFG_KEY) || "null"); } catch(e){ cfg = null; }
@@ -120,12 +120,6 @@ function api(path, opts){
   });
 }
 function pathEnc(p){ return p.split("/").map(encodeURIComponent).join("/"); }
-function esc(s){
-  return String(s==null?"":s).replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/\t/g,"\\t");
-}
-function unesc(s){
-  return String(s==null?"":s).replace(/\\n/g,"\n").replace(/\\t/g,"\t").replace(/\\\\/g,"\\");
-}
 function typeOf(name){
   var n = name.toLowerCase();
   if(/\.(jpg|jpeg|png|gif|webp|bmp|heic|heif)$/.test(n)) return "photo";
@@ -142,49 +136,39 @@ function fmtDate(ts){
   var p = function(x){ return (x<10?"0":"")+x; };
   return p(d.getDate())+"."+p(d.getMonth()+1)+"."+String(d.getFullYear()).slice(2)+" "+p(d.getHours())+":"+p(d.getMinutes());
 }
+function js(s){ return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'"); }
+function escHtml(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
-function loadTree(){
-  return api("/git/trees/main?recursive=1").then(function(t){
-    var map = {};
-    (t.tree||[]).forEach(function(e){ if(e.type==="blob") map[e.path] = {sha:e.sha, size:e.size}; });
-    treeMap = map;
-    return map;
+function loadIndex(){
+  return api("/contents/index.json").then(function(j){
+    indexSha = j.sha;
+    var b64 = j.content.replace(/\n/g,"");
+    var arr = JSON.parse(atob(b64));
+    items = (arr || []).filter(function(x){ return x && x.name; });
+    var nj = JSON.stringify(items);
+    if(nj !== itemsJson){
+      itemsJson = nj;
+      return true;
+    }
+    return false;
+  }).catch(function(e){
+    if(e.message === "404"){
+      items = [];
+      indexSha = null;
+      itemsJson = "[]";
+      return true;
+    }
+    throw e;
   });
-}
-function readMetaLines(metaPath){
-  if(!treeMap[metaPath]) return Promise.resolve(null);
-  return api("/contents/" + pathEnc(metaPath)).then(function(j){
-    return {lines: atob(j.content).split("\n"), sha: j.sha};
-  });
-}
-function putMetaLines(metaPath, lines, sha){
-  var content = b64FromText(lines.join("\n"));
-  var body = {message:"meta " + metaPath, content: content};
-  if(sha) body.sha = sha;
-  return api("/contents/" + pathEnc(metaPath), {method:"PUT", body: JSON.stringify(body)});
-}
-function buildItems(){
-  var out = [];
-  Object.keys(treeMap).forEach(function(p){
-    var m = p.match(/^files\/(photo|archive|other)\/(.+)$/);
-    if(!m) return;
-    var type = m[1], name = m[2];
-    var mp = "meta/" + type + "/" + name + ".meta";
-    out.push({name:name, type:type, metaPath:mp});
-  });
-  out.sort(function(a,b){ return a.name.localeCompare(b.name); });
-  return out;
 }
 
 function render(){
   var content = document.getElementById("content");
   var types = [["photo","ФОТО"],["archive","АРХИВЫ"],["other","ДРУГОЕ"]];
   var html = "";
-  var n = 0;
   types.forEach(function(tp){
     var list = items.filter(function(it){ return it.type === tp[0]; });
     if(!list.length) return;
-    n += list.length;
     html += '<div class="card"><h2>' + tp[1] + ' <span class="n">(' + list.length + ')</span></h2>';
     html += '<button class="btn sm" style="margin:8px 0" onclick="showUpload(\'' + tp[0] + '\')">ЗАГРУЗИТЬ</button>';
     html += '<div id="upf_' + tp[0] + '"></div>';
@@ -192,31 +176,30 @@ function render(){
     html += '</div>';
   });
   content.innerHTML = html || '<div id="bigmsg">пока пусто</div>';
-  status(n ? "обновлено " + new Date().toLocaleTimeString() : "");
+  status("обновлено " + new Date().toLocaleTimeString());
 }
 
 function itemHtml(it){
   var isImg = it.type === "photo";
-  var m = it.meta || {};
-  var thumb = isImg ? '<img class="thumb" src="' + (imgCache[it.name] || "") + '" onclick="openPhoto(\'' + js(it.name) + '\')">' : '<div class="thumb" style="display:flex;align-items:center;justify-content:center;color:#8a8fa0;font-size:28px">📦</div>';
+  var thumb = isImg
+    ? '<img class="thumb" src="' + (imgCache[it.name] || "") + '" onclick="openPhoto(\'' + js(it.name) + '\')">'
+    : '<div class="thumb" style="display:flex;align-items:center;justify-content:center;color:#8a8fa0;font-size:28px">📦</div>';
   return '<div class="item">' + thumb +
     '<div class="info"><div class="t">' + escHtml(it.title) + '</div>' +
-    (m.desc ? '<div class="d">' + escHtml(m.desc) + '</div>' : '') +
-    '<div class="meta">' + fmtSize(it.size) + ' · ' + fmtDate(it.ts) + ' · ' + (m.views||0) + ' просмотров</div>' +
+    (it.desc ? '<div class="d">' + escHtml(it.desc) + '</div>' : '') +
+    '<div class="meta">' + fmtSize(it.size) + ' · ' + fmtDate(it.ts) + ' · ' + (it.views||0) + ' просмотров</div>' +
     '<div class="acts">' +
-    '<button class="like' + (m.liked ? " on" : "") + '" onclick="like(\'' + js(it.name) + '\',\'' + it.type + '\')">♥ ' + (m.likes||0) + '</button>' +
+    '<button class="like' + (it.liked ? " on" : "") + '" onclick="like(\'' + js(it.name) + '\',\'' + it.type + '\')">♥ ' + (it.likes||0) + '</button>' +
     '<button class="btn sm" onclick="openPhoto(\'' + js(it.name) + '\')">ОТКРЫТЬ</button>' +
     '<button class="btn sm" onclick="download(\'' + js(it.name) + '\',\'' + it.type + '\')">СКАЧАТЬ</button>' +
     '</div></div></div>';
 }
-function js(s){ return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'"); }
-function escHtml(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
-function getItem(name){
-  return items.filter(function(it){ return it.name === name; })[0];
+function getItem(name, type){
+  return items.filter(function(it){ return it.name === name && (!type || it.type === type); })[0];
 }
 function loadImg(name){
-  var it = getItem(name);
+  var it = getItem(name, "photo");
   if(!it || imgCache[name]) return Promise.resolve(imgCache[name]);
   return api("/contents/" + pathEnc("files/photo/" + name)).then(function(j){
     var u = "data:image/jpeg;base64," + j.content;
@@ -256,43 +239,27 @@ function base64ToBytes(b64){
   for(var i=0;i<bin.length;i++) out[i] = bin.charCodeAt(i);
   return out;
 }
-function bumpView(it){
-  if(!it.meta) it.meta = {title:it.title, desc:"", likes:0, views:0};
-  it.meta.views = (it.meta.views||0) + 1;
-  var lines = [esc(it.meta.title), esc(it.meta.desc), String(it.meta.likes||0), String(it.meta.views)];
-  putMetaLines(it.metaPath, lines, it.metaSha).then(function(j){
-    it.metaSha = j.content.sha;
-    refreshMeta(it);
-  }).catch(function(e){ status("view err: " + e.message); });
-}
-function like(name, type){
-  var it = getItem(name);
-  if(!it) return;
-  if(!it.meta) it.meta = {title:it.title, desc:"", likes:0, views:0};
-  it.meta.likes = (it.meta.likes||0) + 1;
-  it.meta.liked = true;
-  var lines = [esc(it.meta.title), esc(it.meta.desc), String(it.meta.likes), String(it.meta.views||0)];
-  putMetaLines(it.metaPath, lines, it.metaSha).then(function(j){
-    it.metaSha = j.content.sha;
-    render();
-  }).catch(function(e){ status("like err: " + e.message); });
-}
-function refreshMeta(it){
-  readMetaLines(it.metaPath).then(function(r){
-    if(!r) return;
-    it.meta = parseMeta(r.lines, it.name);
-    it.metaSha = r.sha;
+
+function writeIndex(){
+  return api("/contents/index.json").then(function(j){
+    return api("/contents/index.json", {
+      method:"PUT",
+      body: JSON.stringify({message:"index", content: b64FromText(JSON.stringify(items)), sha: j.sha})
+    });
   });
 }
-function parseMeta(lines, name){
-  var m = {title: name, desc:"", likes:0, views:0};
-  if(lines && lines.length >= 4){
-    m.title = unesc(lines[0]) || name;
-    m.desc = unesc(lines[1]);
-    m.likes = parseInt(lines[2],10) || 0;
-    m.views = parseInt(lines[3],10) || 0;
-  }
-  return m;
+function bumpView(it){
+  it.views = (it.views||0) + 1;
+  writeIndex().catch(function(e){ status("view err: " + e.message); });
+}
+function like(name, type){
+  var it = getItem(name, type);
+  if(!it) return;
+  it.likes = (it.likes||0) + 1;
+  it.liked = true;
+  writeIndex().then(function(){
+    render();
+  }).catch(function(e){ status("like err: " + e.message); });
 }
 function showUpload(type){
   var box = document.getElementById("upf_" + type);
@@ -316,17 +283,31 @@ function doUpload(type){
   status("загрузка " + f.name + "...");
   readFileB64(f, function(b64){
     var path = "files/" + type + "/" + f.name;
-    var body = {message:"upload " + f.name, content: b64};
-    if(treeMap[path]) body.sha = treeMap[path].sha;
-    api("/contents/" + pathEnc(path), {method:"PUT", body: JSON.stringify(body)}).then(function(){
-      var metaPath = "meta/" + type + "/" + f.name + ".meta";
-      var msha = treeMap[metaPath] ? treeMap[metaPath].sha : null;
-      var lines = [esc(title || f.name), esc(desc), "0", "0"];
-      return putMetaLines(metaPath, lines, msha);
+    api("/contents/" + pathEnc(path)).then(function(j){
+      return api("/contents/" + pathEnc(path), {
+        method:"PUT",
+        body: JSON.stringify({message:"upload " + f.name, content: b64, sha: j.sha})
+      });
+    }).catch(function(e){
+      if(e.message === "404"){
+        return api("/contents/" + pathEnc(path), {
+          method:"PUT",
+          body: JSON.stringify({message:"upload " + f.name, content: b64})
+        });
+      }
+      throw e;
+    }).then(function(){
+      var it = {name: f.name, type: type, title: title || f.name, desc: desc,
+                likes: 0, views: 0, size: f.size, ts: Date.now(),
+                date: fmtDate(Date.now()), dir: ""};
+      var ex = getItem(f.name, type);
+      if(ex){ it.likes = ex.likes; it.views = ex.views; items = items.filter(function(x){ return x !== ex; }); }
+      items.push(it);
+      return writeIndex();
     }).then(function(){
       status("загружено");
       document.getElementById("upf_" + type).innerHTML = "";
-      boot();
+      render();
     }).catch(function(e){ status("upload err: " + e.message); });
   });
 }
@@ -350,29 +331,15 @@ function b64FromText(t){
 }
 
 function refresh(){
-  loadTree().then(function(){
-    var newItems = buildItems();
-    var newJson = JSON.stringify(newItems);
-    if(newJson !== treeJson){
-      treeJson = newJson;
-      items = newItems;
-      var todo = 0;
-      items.forEach(function(it){
-        readMetaLines(it.metaPath).then(function(r){
-          it.meta = parseMeta(r ? r.lines : null, it.name);
-          it.metaSha = r ? r.sha : null;
-          todo++;
-          if(todo === items.length){
-            var first = items.filter(function(x){ return x.type === "photo"; }).slice(0,4);
-            var loaded = 0;
-            first.forEach(function(p){
-              loadImg(p.name).then(function(){ loaded++; if(loaded === first.length) render(); });
-            });
-            if(!first.length) render();
-          }
-        }).catch(function(){ todo++; });
+  loadIndex().then(function(changed){
+    if(changed){
+      imgCache = {};
+      var first = items.filter(function(x){ return x.type === "photo"; }).slice(0,4);
+      var loaded = 0;
+      first.forEach(function(p){
+        loadImg(p.name).then(function(){ loaded++; if(loaded === first.length) render(); });
       });
-      if(!items.length) render();
+      if(!first.length) render();
     } else {
       render();
     }
