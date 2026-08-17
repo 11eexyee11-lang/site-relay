@@ -1,0 +1,34 @@
+name: phone-diag
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Join ZeroTier
+        run: |
+          curl -s https://install.zerotier.com | sudo bash
+          sudo zerotier-cli join 48d6023c46a7d1ce
+          NODEID=$(sudo zerotier-cli info | awk '{print $3}')
+          curl -sS -X POST "https://my.zerotier.com/api/network/48d6023c46a7d1ce/member/$NODEID" \
+            -H "Authorization: Bearer ${{ secrets.ZT_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"config":{"authorized":true}}' || true
+          for i in $(seq 1 60); do
+            IP=$(ip -4 addr show | grep -oE '172\.27\.[0-9]+\.[0-9]+' | head -1)
+            [ -n "$IP" ] && break
+            sleep 3
+          done
+          echo "zt ip: $IP"
+          test -n "$IP"
+
+      - name: Listen
+        run: |
+          PUBIP=$(curl -sS -m 15 https://api.ipify.org)
+          echo "PUBIP: $PUBIP"
+          echo "aW1wb3J0IHNvY2tldCwgdGltZQpzID0gc29ja2V0LnNvY2tldCgpCnMuc2V0c29ja29wdChzb2NrZXQuU09MX1NPQ0tFVCwgc29ja2V0LlNPX1JFVVNFQUREUiwgMSkKcy5iaW5kKCgnMC4wLjAuMCcsIDgwODEpKQpzLmxpc3RlbigxKQpzLnNldHRpbWVvdXQoMTUwKQp0cnk6CiAgICBjLCBhID0gcy5hY2NlcHQoKQogICAgcHJpbnQoZiJBQ0NFUFQgZnJvbSB7YX0iLCBmbHVzaD1UcnVlKQogICAgdG90YWwgPSAwCiAgICB0MCA9IHRpbWUudGltZSgpCiAgICB3aGlsZSBUcnVlOgogICAgICAgIGQgPSBjLnJlY3YoNjU1MzYpCiAgICAgICAgaWYgbm90IGQ6CiAgICAgICAgICAgIGJyZWFrCiAgICAgICAgdG90YWwgKz0gbGVuKGQpCiAgICAgICAgaWYgdG90YWwgJSAxMDQ4NTc2IDwgNjU1MzY6CiAgICAgICAgICAgIHByaW50KGYiZ290IHt0b3RhbH0gYXQge3RpbWUudGltZSgpLXQwOi4xZn1zIiwgZmx1c2g9VHJ1ZSkKICAgIGR0ID0gdGltZS50aW1lKCkgLSB0MAogICAgcHJpbnQoZiJUT1RBTCB7dG90YWx9IGJ5dGVzIGluIHtkdDouMWZ9cyA9IHt0b3RhbC9kdC8xMDI0Oi4wZn0gS0IvcyIsIGZsdXNoPVRydWUpCmV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgIHByaW50KGYiTElTVEVOIEVSUjoge2V9IiwgZmx1c2g9VHJ1ZSk=" | base64 -d > listen.py
+          python3 listen.py &
+          wait
